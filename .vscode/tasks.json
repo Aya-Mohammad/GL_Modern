@@ -1,0 +1,30 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build OpenGL Project",
+            "type": "shell",
+            "command": "g++",
+            "args": [
+                "src/main.cpp",
+                "src/glad.c",
+                "-Iinclude",
+                "-Iinclude/glad",
+                "-Iinclude/GLFW",
+                "-Iinclude/glm",
+                "-Iinclude/stb",
+                "-Llib",
+                "-lglfw3",
+                "-lopengl32",
+                "-lgdi32",
+                "-o",
+                "SolarSystem.exe"
+            ],
+
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        }
+    ]
+}
