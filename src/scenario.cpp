@@ -29,7 +29,7 @@ Scenario loadScenario_SolarSystemBasic()
 
     // Sun
     CelestialBody sun(
-        "Sun", 2.0f, "D:/SolarSystem-OpenGL/textures/sun.jpg", true,
+        "Sun", 2.0f, "textures/sun.jpg", true,
         0.0f, 0.0f, 0.1f, glm::vec3(0.0f, 1.0f, 0.0f),
         std::nullopt
     );
