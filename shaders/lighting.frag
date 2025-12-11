@@ -7,7 +7,5 @@ uniform sampler2D ourTexture;
 
 void main()
 {
-    // The sun is emissive, so we just sample its texture
-    // and don't apply any lighting.
     FragColor = texture(ourTexture, TexCoord);
 }

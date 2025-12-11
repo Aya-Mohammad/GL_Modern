@@ -32,7 +32,7 @@ void mouse_callback(GLFWwindow* window, double xpos, double ypos)
     if(firstMouse){ lastX = xpos; lastY = ypos; firstMouse = false; }
 
     float xoffset = xpos - lastX;
-    float yoffset = lastY - ypos; // reversed
+    float yoffset = lastY - ypos;
     lastX = xpos;
     lastY = ypos;
 
@@ -44,19 +44,65 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
     camera.ProcessMouseScroll(yoffset);
 }
 
+// ==================== Global vars for eclipse/lunar eclipse =====================
+bool togglePressed = false;
+bool eclipseMode = false;        // كسوف
+float speedFactor = 1.0f;
+bool isFrozen = false;
+float frozenTime = 0.0f;
+
+bool lunarTogglePressed = false;
+bool lunarEclipseMode = false;   // خسوف
+float frozenLunarTime = 0.0f;
+
+// ===================== Input =====================
 void processInput(GLFWwindow *window)
 {
-    if(glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-        glfwSetWindowShouldClose(window,true);
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+        glfwSetWindowShouldClose(window, true);
 
-    if(glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
         camera.ProcessKeyboard(FORWARD, deltaTime);
-    if(glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
         camera.ProcessKeyboard(BACKWARD, deltaTime);
-    if(glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
         camera.ProcessKeyboard(LEFT, deltaTime);
-    if(glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
         camera.ProcessKeyboard(RIGHT, deltaTime);
+
+    // ===== Solar Eclipse (G) =====
+    if (glfwGetKey(window, GLFW_KEY_G) == GLFW_PRESS && !togglePressed)
+    {
+        togglePressed = true;
+        eclipseMode = true;
+        lunarEclipseMode = false;
+        isFrozen = false;
+        speedFactor = 3.0f;
+    }
+    if (glfwGetKey(window, GLFW_KEY_G) == GLFW_RELEASE)
+        togglePressed = false;
+
+    // ===== Lunar Eclipse (H) =====
+    if (glfwGetKey(window, GLFW_KEY_H) == GLFW_PRESS && !lunarTogglePressed)
+    {
+        lunarTogglePressed = true;
+        lunarEclipseMode = true;
+        eclipseMode = false;
+        isFrozen = false;
+        speedFactor = 3.0f;
+    }
+    if (glfwGetKey(window, GLFW_KEY_H) == GLFW_RELEASE)
+        lunarTogglePressed = false;
+
+    // ===== Exit Eclipse Modes (J) =====
+    if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS)
+    {
+        eclipseMode = false;
+        lunarEclipseMode = false;
+        isFrozen = false;
+        speedFactor = 1.0f;
+        std::cout << "EXIT ECLIPSE / LUNAR ECLIPSE MODE\n";
+    }
 }
 
 // ===================== Load Texture =====================
@@ -91,6 +137,56 @@ unsigned int loadTexture(const char* path)
     return textureID;
 }
 
+// ===================== Load Cubemap =====================
+unsigned int loadCubemap(std::vector<std::string> faces)
+{
+    unsigned int textureID;
+    glGenTextures(1, &textureID);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, textureID);
+
+    int width, height, nrChannels;
+    stbi_set_flip_vertically_on_load(false);
+
+    for(unsigned int i = 0; i < faces.size(); i++)
+    {
+        unsigned char* data = stbi_load(faces[i].c_str(), &width, &height, &nrChannels, 0);
+        if(data)
+        {
+            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i,
+                         0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+            stbi_image_free(data);
+        }
+        else
+        {
+            std::cout << "Cubemap texture failed to load: " << faces[i] << std::endl;
+            stbi_image_free(data);
+        }
+    }
+
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+    return textureID;
+}
+
+// ===================== Eclipse Check =====================
+bool isEclipse(const glm::vec3& sunPos, const glm::vec3& earthPos, const glm::vec3& moonPos)
+{
+    glm::vec3 SE = earthPos - sunPos;
+    glm::vec3 SM = moonPos - sunPos;
+
+    float distance = glm::length(glm::cross(SE, SM)) / glm::length(SE);
+
+    bool inBetween =
+        glm::dot(SE, SM) > 0 &&
+        glm::length(SM) < glm::length(SE);
+
+    return (distance < 0.5f && inBetween);
+}
+
 // ===================== Main =====================
 int main()
 {
@@ -116,18 +212,91 @@ int main()
     // --- Shaders ---
     Shader sunShader("shaders/emissive.vert","shaders/emissive.frag");
     Shader planetShader("shaders/lighting.vert","shaders/lighting.frag");
+    Shader skyboxShader("shaders/skybox.vert","shaders/skybox.frag");
 
     // --- Textures ---
     unsigned int sunTex   = loadTexture("textures/sun.jpg");
     unsigned int earthTex = loadTexture("textures/earth.jpg");
     unsigned int moonTex  = loadTexture("textures/moon.jpg");
 
+    std::vector<std::string> faces
+    {
+        "textures/skybox/right.jpg",
+        "textures/skybox/left.jpg",
+        "textures/skybox/top.jpg",
+        "textures/skybox/bottom.jpg",
+        "textures/skybox/front.jpg",
+        "textures/skybox/back.jpg"
+    };
+    unsigned int cubemapTexture = loadCubemap(faces);
+
+    // --- Skybox VAO/VBO ---
+    float skyboxVertices[] = {
+    // ----------- Back face -----------
+        -1.0f,  1.0f, -1.0f,
+        -1.0f, -1.0f, -1.0f,
+        1.0f, -1.0f, -1.0f,
+        1.0f, -1.0f, -1.0f,
+        1.0f,  1.0f, -1.0f,
+        -1.0f,  1.0f, -1.0f,
+
+        // ----------- Left face -----------
+        -1.0f, -1.0f,  1.0f,
+        -1.0f, -1.0f, -1.0f,
+        -1.0f,  1.0f, -1.0f,
+        -1.0f,  1.0f, -1.0f,
+        -1.0f,  1.0f,  1.0f,
+        -1.0f, -1.0f,  1.0f,
+
+        // ----------- Right face -----------
+        1.0f, -1.0f, -1.0f,
+        1.0f, -1.0f,  1.0f,
+        1.0f,  1.0f,  1.0f,
+        1.0f,  1.0f,  1.0f,
+        1.0f,  1.0f, -1.0f,
+        1.0f, -1.0f, -1.0f,
+
+        // ----------- Front face -----------
+        -1.0f, -1.0f,  1.0f,
+        -1.0f,  1.0f,  1.0f,
+        1.0f,  1.0f,  1.0f,
+        1.0f,  1.0f,  1.0f,
+        1.0f, -1.0f,  1.0f,
+        -1.0f, -1.0f,  1.0f,
+
+        // ----------- Top face -----------
+        -1.0f,  1.0f, -1.0f,
+        1.0f,  1.0f, -1.0f,
+        1.0f,  1.0f,  1.0f,
+        1.0f,  1.0f,  1.0f,
+        -1.0f,  1.0f,  1.0f,
+        -1.0f,  1.0f, -1.0f,
+
+        // ----------- Bottom face -----------
+        -1.0f, -1.0f, -1.0f,
+        -1.0f, -1.0f,  1.0f,
+        1.0f, -1.0f,  1.0f,
+        1.0f, -1.0f,  1.0f,
+        1.0f, -1.0f, -1.0f,
+        -1.0f, -1.0f, -1.0f
+    };
+
+    unsigned int skyboxVAO, skyboxVBO;
+    glGenVertexArrays(1, &skyboxVAO);
+    glGenBuffers(1, &skyboxVBO);
+    glBindVertexArray(skyboxVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, skyboxVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(skyboxVertices), &skyboxVertices, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glBindVertexArray(0);
+
     // --- Planets ---
     Planet sun(2.0f,64,64);
     Planet earth(0.5f,64,64);
     Planet moon(0.14f,32,32);
 
-    // --- Render Loop ---
+    // ===================== RENDER LOOP =====================
     while(!glfwWindowShouldClose(window))
     {
         float currentFrame = glfwGetTime();
@@ -141,9 +310,89 @@ int main()
 
         glm::mat4 view = camera.GetViewMatrix();
         glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom),(float)SCR_WIDTH/SCR_HEIGHT,0.1f,100.0f);
-        float t = (float)glfwGetTime();
 
-        // --- Sun ---
+    // ======================= Planet Movement  =======================
+        float t;
+        if(isFrozen)
+            t = frozenTime;
+        else
+            t = currentFrame * speedFactor;
+
+        // earth`s rotation
+        float earthOrbitRadius = 10.0f;
+        float earthSpeed = 1.0f;
+
+        glm::vec3 earthPos = glm::vec3(
+            earthOrbitRadius * cos(t * earthSpeed),
+            0.0f,
+            earthOrbitRadius * sin(t * earthSpeed)
+        );
+        glm::mat4 earthModel = glm::translate(glm::mat4(1.0f), earthPos);
+
+        // moon`s rotation
+        float moonOrbitRadius = 2.0f;
+        float moonSpeed = 3.0f;
+
+        glm::vec3 moonPos = earthPos + glm::vec3(
+            moonOrbitRadius * cos(t * moonSpeed),
+            0.0f,
+            moonOrbitRadius * sin(t * moonSpeed)
+        );
+        glm::mat4 moonModel = glm::translate(glm::mat4(1.0f), moonPos);
+
+        // ==================================================
+        //                  الكسوف Solar Eclipse
+        // ==================================================
+        if (eclipseMode && !isFrozen)
+        {
+            glm::vec3 sunPos(0.0f, 0.0f, 0.0f);
+
+            // Earth → Sun
+            glm::vec3 ES = sunPos - earthPos;
+            // Earth → Moon
+            glm::vec3 EM = moonPos - earthPos;
+
+            float distance = glm::length(glm::cross(ES, EM)) / glm::length(ES);
+
+            bool moonBetween =
+                glm::dot(ES, EM) > 0 &&
+                glm::length(EM) < glm::length(ES);
+
+            if (distance < 0.3f && moonBetween)
+            {
+                isFrozen = true;
+                frozenTime = t;
+                std::cout << "SOLAR ECLIPSE OCCURRED\n";
+            }
+        }
+
+        // ==================================================
+        //                  الخسوف Lunar Eclipse
+        // ==================================================
+        if (lunarEclipseMode && !isFrozen)
+        {
+            glm::vec3 sunPos(0.0f, 0.0f, 0.0f);
+
+            // Sun → Earth
+            glm::vec3 SE = earthPos - sunPos;
+            // Sun → Moon
+            glm::vec3 SM = moonPos - sunPos;
+
+            float distance = glm::length(glm::cross(SE, SM)) / glm::length(SE);
+
+            bool earthBetween =
+                glm::dot(SE, SM) > 0 &&
+                glm::length(SE) < glm::length(SM);
+
+            if (distance < 0.3f && earthBetween)
+            {
+                isFrozen = true;
+                frozenTime = t;
+                std::cout << "LUNAR ECLIPSE OCCURRED\n";
+            }
+        }
+
+        // ======================= draw planet =======================
         sunShader.use();
         sunShader.setMat4("view", view);
         sunShader.setMat4("projection", projection);
@@ -152,25 +401,36 @@ int main()
         glBindTexture(GL_TEXTURE_2D, sunTex);
         sun.draw();
 
-        // --- Earth ---
         planetShader.use();
-        planetShader.setInt("texture_diffuse1", 0);
-        planetShader.setVec3("lightPos", glm::vec3(0,0,0));
-        planetShader.setVec3("viewPos", camera.Position);
+        planetShader.setInt("texture_diffuse1",0);
+        planetShader.setVec3("lightPos",glm::vec3(0,0,0));
+        planetShader.setVec3("viewPos",camera.Position);
         planetShader.setMat4("view", view);
         planetShader.setMat4("projection", projection);
 
-        glm::mat4 earthModel = glm::translate(glm::mat4(1.0f), glm::vec3(10*cos(t),0,10*sin(t)));
         planetShader.setMat4("model", earthModel);
+        glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, earthTex);
         earth.draw();
 
-        // --- Moon ---
-        glm::vec3 earthPos = glm::vec3(10*cos(t),0,10*sin(t));
-        glm::mat4 moonModel = glm::translate(glm::mat4(1.0f), earthPos + glm::vec3(1*cos(t*2),0,1*sin(t*2)));
         planetShader.setMat4("model", moonModel);
+        glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, moonTex);
+
         moon.draw();
+
+        // ======================= Skybox =======================
+        glDepthFunc(GL_LEQUAL);
+        skyboxShader.use();
+        glm::mat4 skyboxView = glm::mat4(glm::mat3(camera.GetViewMatrix()));
+        skyboxShader.setMat4("view", skyboxView);
+        skyboxShader.setMat4("projection", projection);
+        glBindVertexArray(skyboxVAO);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapTexture);
+        glDrawArrays(GL_TRIANGLES,0,36);
+        glBindVertexArray(0);
+        glDepthFunc(GL_LESS);
 
         glfwSwapBuffers(window);
         glfwPollEvents();

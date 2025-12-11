@@ -1,6 +1,5 @@
 #version 330 core
 layout (location = 0) in vec3 aPos;
-// Location 1 (aNormal) is unused but exists in the Planet VAO
 layout (location = 2) in vec2 aTexCoord;
 
 out vec2 TexCoord;
