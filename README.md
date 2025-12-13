@@ -1,5 +1,6 @@
 <img width="749" height="351" alt="image" src="https://github.com/user-attachments/assets/7d5f25fd-97b0-4918-b441-26e973f4caf6" />
- # 🌌 Solar System (OpenGL C++)
+
+# 🌌 Solar System (OpenGL C++)
 
 A simple solar system simulation built with C++ and modern OpenGL.
 This project demonstrates core computer graphics concepts including **texturing, lighting, animation, hierarchical transformations, skyboxes, and eclipses**.
@@ -53,3 +54,4 @@ g++ src/main.cpp src/glad.c src/ini.c src/scenario.cpp src/config.cpp src/shader
 - Planet Textures: Solar System Scope
 
 - Skybox Textures: NASA SVS visualization #4851
+
