@@ -8,6 +8,7 @@
 #include "../include/shader.h"
 #include "../include/camera.h"
 #include "../include/planet.h"
+#include "scenario.h"
 
 #include <iostream>
 #include <vector>
@@ -20,6 +21,7 @@ float lastY = SCR_HEIGHT / 2.0f;
 bool firstMouse = true;
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
+float earthSelfRotation = 0.0f;
 
 // ===================== Callbacks =====================
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
@@ -69,6 +71,10 @@ void processInput(GLFWwindow *window)
         camera.ProcessKeyboard(LEFT, deltaTime);
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
         camera.ProcessKeyboard(RIGHT, deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
+        camera.ProcessKeyboard(DOWN, deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
+        camera.ProcessKeyboard(UP, deltaTime);
 
     // ===== Solar Eclipse (G) =====
     if (glfwGetKey(window, GLFW_KEY_G) == GLFW_PRESS && !togglePressed)
@@ -78,6 +84,8 @@ void processInput(GLFWwindow *window)
         lunarEclipseMode = false;
         isFrozen = false;
         speedFactor = 3.0f;
+
+        // camera.Position = glm::vec3(0.0f);
     }
     if (glfwGetKey(window, GLFW_KEY_G) == GLFW_RELEASE)
         togglePressed = false;
@@ -213,6 +221,7 @@ int main()
     Shader sunShader("shaders/emissive.vert","shaders/emissive.frag");
     Shader planetShader("shaders/lighting.vert","shaders/lighting.frag");
     Shader skyboxShader("shaders/skybox.vert","shaders/skybox.frag");
+    Shader orbitShader("shaders/orbit.vert", "shaders/orbit.frag");
 
     // --- Textures ---
     unsigned int sunTex   = loadTexture("textures/sun.jpg");
@@ -291,10 +300,65 @@ int main()
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glBindVertexArray(0);
 
+    // --- Orbit Path for Earth ---
+    std::vector<glm::vec3> earthOrbitVertices;
+    int orbitSegments = 100;
+    float earthOrbitRadius = 10.0f;
+
+    for (int i = 0; i < orbitSegments; ++i)
+    {
+        float angle = 2.0f * glm::pi<float>() * i / orbitSegments;
+        float x = earthOrbitRadius * cos(angle);
+        float z = earthOrbitRadius * sin(angle);
+        earthOrbitVertices.push_back(glm::vec3(x, 0.0f, z));
+    }
+
+    unsigned int orbitVAO, orbitVBO;
+    glGenVertexArrays(1, &orbitVAO);
+    glGenBuffers(1, &orbitVBO);
+
+    glBindVertexArray(orbitVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, orbitVBO);
+    glBufferData(GL_ARRAY_BUFFER, earthOrbitVertices.size() * sizeof(glm::vec3), &earthOrbitVertices[0], GL_STATIC_DRAW);
+
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
+
+    glBindVertexArray(0);
+
+
+
+    // --- Orbit Path for Moon ---
+    std::vector<glm::vec3> moonOrbitVertices;
+    int moonOrbitSegments = 100;
+    float moonOrbitRadius = 2.0f;
+
+    for (int i = 0; i < moonOrbitSegments; ++i)
+    {
+        float angle = 2.0f * glm::pi<float>() * i / moonOrbitSegments;
+        float x = moonOrbitRadius * cos(angle);
+        float z = moonOrbitRadius * sin(angle);
+        moonOrbitVertices.push_back(glm::vec3(x, 0.0f, z));
+    }
+    unsigned int moonOrbitVAO, moonOrbitVBO;
+    glGenVertexArrays(1, &moonOrbitVAO);
+    glGenBuffers(1, &moonOrbitVBO);
+
+    glBindVertexArray(moonOrbitVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, moonOrbitVBO);
+    glBufferData(GL_ARRAY_BUFFER, moonOrbitVertices.size() * sizeof(glm::vec3), &moonOrbitVertices[0], GL_STATIC_DRAW);
+
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
+
+    glBindVertexArray(0);
+
     // --- Planets ---
     Planet sun(2.0f,64,64);
     Planet earth(0.5f,64,64);
     Planet moon(0.14f,32,32);
+
+    Scenario scenario = loadScenario_SolarSystemBasic();
 
     // ===================== RENDER LOOP =====================
     while(!glfwWindowShouldClose(window))
@@ -311,6 +375,14 @@ int main()
         glm::mat4 view = camera.GetViewMatrix();
         glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom),(float)SCR_WIDTH/SCR_HEIGHT,0.1f,100.0f);
 
+        CelestialBody* moonBody = nullptr;
+        for (auto& body : scenario.bodies) {
+            if (body.name == "Moon") {
+                moonBody = &body;
+                break;
+            }
+        }
+
     // ======================= Planet Movement  =======================
         float t;
         if(isFrozen)
@@ -318,9 +390,11 @@ int main()
         else
             t = currentFrame * speedFactor;
 
-        // earth`s rotation
+        earthSelfRotation += deltaTime * 50.0f;
         float earthOrbitRadius = 10.0f;
         float earthSpeed = 1.0f;
+
+        glm::vec3 sunPos = glm::vec3(0.0f , 0.0f , 0.0f);
 
         glm::vec3 earthPos = glm::vec3(
             earthOrbitRadius * cos(t * earthSpeed),
@@ -328,8 +402,8 @@ int main()
             earthOrbitRadius * sin(t * earthSpeed)
         );
         glm::mat4 earthModel = glm::translate(glm::mat4(1.0f), earthPos);
+        earthModel = glm::rotate(earthModel, glm::radians(earthSelfRotation),glm::vec3(0.0f, 1.0f, 0.0f));
 
-        // moon`s rotation
         float moonOrbitRadius = 2.0f;
         float moonSpeed = 3.0f;
 
@@ -340,6 +414,91 @@ int main()
         );
         glm::mat4 moonModel = glm::translate(glm::mat4(1.0f), moonPos);
 
+        // =======================  moon size after eclipse  =======================
+        float moonRadius = 0.135f;
+        if (eclipseMode)
+        {
+            static float originalMoonRadius = 0.1f;
+
+            glm::vec3 camPos = camera.Position;
+            glm::vec3 toEarth = glm::normalize(earthPos - camPos);
+            glm::vec3 toMoon = glm::normalize(moonPos - camPos);
+            glm::vec3 toSun = glm::normalize(sunPos - camPos);
+
+            float dotCameraMoon = glm::dot(camera.Front, toMoon);
+
+
+            glm::vec3 earthToMoon = moonPos - earthPos;
+            glm::vec3 earthToCam = camPos - earthPos;
+
+            float projectionLength = glm::dot(earthToCam, glm::normalize(earthToMoon));
+
+            float dotSunMoon = glm::dot(toSun, toMoon);
+
+            float distCamToEarth = glm::length(earthPos - camPos);
+            float distCamToMoon = glm::length(moonPos - camPos);
+            float distEarthToMoon = glm::length(earthToMoon);
+
+            bool isCameraBetween = (distCamToEarth < distEarthToMoon) && (projectionLength > 0);
+
+            bool isMoonInFrontOfSun = (dotSunMoon > 0.95f);
+
+            bool isLookingAtMoon = (dotCameraMoon > 0.7f);
+
+            glm::vec3 camToEarthDir = glm::normalize(earthPos - camPos);
+            float dotCamFrontToEarth = glm::dot(camera.Front, camToEarthDir);
+            bool isEarthBehindCamera = (dotCamFrontToEarth < 0);
+
+            if (isCameraBetween && isMoonInFrontOfSun && isLookingAtMoon && isEarthBehindCamera)
+            {
+                moonRadius = 0.6f;
+
+                float distCamToMoon = glm::length(moonPos - camPos);
+                float desiredDistance = distCamToMoon + 1000.0f;
+
+                glm::vec3 camToMoonDir = glm::normalize(moonPos - camPos);
+                moonPos = camPos + camToMoonDir * desiredDistance;
+
+                glm::mat4 moonModel = glm::mat4(1.0f);
+                moonModel = glm::translate(moonModel, moonPos);
+                moonModel = glm::scale(moonModel, glm::vec3(moonRadius));
+                planetShader.setMat4("model", moonModel);
+
+                if (moonBody && moonBody->mesh) {
+                    moonBody->mesh->draw();
+                }
+
+            }
+            else
+            {
+                moonRadius = originalMoonRadius;
+            }
+        }
+        if (moonBody && moonBody->mesh) {
+            moonBody->mesh = std::make_unique<Planet>(moonRadius, 32, 32);
+            planetShader.setMat4("model", moonModel);
+            moonBody->mesh->draw();
+            }
+
+        bool earthInShadow = false;
+        if(eclipseMode)
+        {
+            // Sun → Earth
+            glm::vec3 SE = earthPos - sunPos;
+            // Sun → Moon
+            glm::vec3 SM = moonPos - sunPos;
+
+            float distance = glm::length(glm::cross(SE, SM)) / glm::length(SE);
+
+            bool earthBetween = glm::dot(SE, SM) > 0 && glm::length(SM) < glm::length(SE);
+
+            if(distance < 0.5f && earthBetween)
+            {
+                earthInShadow = true;
+                std::cout << "EARTH IN SHADOW (SOLAR ECLIPSE)\n";
+            }
+        }
+
         // ==================================================
         //                  الكسوف Solar Eclipse
         // ==================================================
@@ -347,9 +506,7 @@ int main()
         {
             glm::vec3 sunPos(0.0f, 0.0f, 0.0f);
 
-            // Earth → Sun
             glm::vec3 ES = sunPos - earthPos;
-            // Earth → Moon
             glm::vec3 EM = moonPos - earthPos;
 
             float distance = glm::length(glm::cross(ES, EM)) / glm::length(ES);
@@ -408,6 +565,11 @@ int main()
         planetShader.setMat4("view", view);
         planetShader.setMat4("projection", projection);
 
+        planetShader.use();
+        planetShader.setBool("isShadowed", earthInShadow);
+        planetShader.setVec3("lightPos", sunPos);
+        planetShader.setVec3("viewPos", camera.Position);
+
         planetShader.setMat4("model", earthModel);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, earthTex);
@@ -417,7 +579,39 @@ int main()
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, moonTex);
 
-        moon.draw();
+        if (moonBody && moonBody->mesh) {
+            planetShader.setMat4("model", moonModel);
+            moonBody->mesh->draw();
+        }
+
+        // --- Draw Earth Orbit ---
+        orbitShader.use();
+        orbitShader.setMat4("view", view);
+        orbitShader.setMat4("projection", projection);
+        orbitShader.setVec3("color", glm::vec3(0.8f, 0.8f, 0.8f));
+
+        glBindVertexArray(orbitVAO);
+        glDrawArrays(GL_LINE_LOOP, 0, earthOrbitVertices.size());
+        glBindVertexArray(0);
+
+
+        orbitShader.use();
+        orbitShader.setMat4("view", view);
+        orbitShader.setMat4("projection", projection);
+        orbitShader.setVec3("color", glm::vec3(0.5f, 0.5f, 1.0f));
+
+        glBindVertexArray(moonOrbitVAO);
+        std::vector<glm::vec3> transformedMoonVertices;
+        transformedMoonVertices.reserve(moonOrbitVertices.size());
+
+        for (auto& v : moonOrbitVertices)
+            transformedMoonVertices.push_back(v + earthPos);
+
+        glBindBuffer(GL_ARRAY_BUFFER, moonOrbitVBO);
+        glBufferData(GL_ARRAY_BUFFER, transformedMoonVertices.size() * sizeof(glm::vec3), &transformedMoonVertices[0], GL_DYNAMIC_DRAW);
+
+        glDrawArrays(GL_LINE_LOOP, 0, transformedMoonVertices.size());
+        glBindVertexArray(0);
 
         // ======================= Skybox =======================
         glDepthFunc(GL_LEQUAL);

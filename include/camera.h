@@ -8,7 +8,7 @@
 #include <vector>
 
 enum Camera_Movement
-{ FORWARD, BACKWARD, LEFT, RIGHT };
+{ FORWARD, BACKWARD, LEFT, RIGHT, DOWN , UP};
 
 const float YAW = -90.0f;
 const float PITCH = 0.0f;
